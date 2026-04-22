@@ -326,6 +326,24 @@ class TestPyQt5VideoAnnotator(unittest.TestCase):
         """测试 FIND 参数是否正确"""
         from annotate_video import FIND
         self.assertIsInstance(FIND, list)
+    
+    def test_15_text_prompt_instance_variable(self):
+        """测试 text_prompt 实例变量"""
+        video_files = list(self.src_dir.glob("*.mp4"))
+        if len(video_files) == 0:
+            self.skipTest("没有测试视频文件")
+        
+        from PyQt5.QtWidgets import QApplication
+        from annotate_video import PyQt5VideoAnnotator
+        
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+        
+        annotator = PyQt5VideoAnnotator(str(video_files[0]), str(self.dst_dir))
+        
+        self.assertTrue(hasattr(annotator, 'text_prompt'))
+        self.assertIsInstance(annotator.text_prompt, list)
 
 if __name__ == '__main__':
     print(f"Python: {sys.version}")

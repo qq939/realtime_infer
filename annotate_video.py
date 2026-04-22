@@ -1028,6 +1028,7 @@ class PyQt5VideoAnnotator(QMainWindow):
         self.added_points = []  # [(x, y), ...] - 用户添加的点（绿色）
         self.current_masks = []  # 当前帧的分割结果
         self.current_mask_ids = []  # 当前帧分割的ID
+        self.text_prompt = FIND if FIND else []  # 文本提示词（保存实例变量）
         
         self.init_ui()
         
@@ -1124,7 +1125,7 @@ class PyQt5VideoAnnotator(QMainWindow):
     
     def process_first_frame(self):
         print("DEBUG: 处理第一帧")
-        from annotate_video import FIND
+        text_prompt = self.text_prompt
         bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes] if self.boxes else None
         
         try:
@@ -1152,8 +1153,8 @@ class PyQt5VideoAnnotator(QMainWindow):
             }
             
             # 传递所有提示
-            if FIND and len(FIND) > 0:
-                predictor_args['text'] = FIND
+            if text_prompt and len(text_prompt) > 0:
+                predictor_args['text'] = text_prompt
             else:
                 predictor_args['text'] = [""]
             
@@ -1346,9 +1347,10 @@ class PyQt5VideoAnnotator(QMainWindow):
     
     def run_inference_thread_v2(self):
         print("DEBUG: run_inference_thread_v2 开始")
+        text_prompt = self.text_prompt
         try:
             from ultralytics.models.sam import SAM3VideoSemanticPredictor
-            from annotate_video import get_device, SAM_MODEL_PATH, FIND
+            from annotate_video import get_device, SAM_MODEL_PATH
             import cv2
             import numpy as np
             from pathlib import Path
@@ -1393,8 +1395,8 @@ class PyQt5VideoAnnotator(QMainWindow):
             predictor_args = {'source': video_path, 'stream': True}
             
             # 始终传递text
-            if FIND and len(FIND) > 0:
-                predictor_args['text'] = FIND
+            if text_prompt and len(text_prompt) > 0:
+                predictor_args['text'] = text_prompt
             else:
                 predictor_args['text'] = [""]
             
