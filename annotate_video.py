@@ -865,7 +865,7 @@ def main():
             return
 
     print(f"\n开始标注: {video_path}")
-    run_pyqt5_annotator(video_path, DST_DIR)
+    annotate_video.run_pyqt5_annotator(video_path, DST_DIR)
 
 if __name__ == "__main__":
     main()
@@ -925,6 +925,9 @@ class VideoLabel(QLabel):
         
     def paintEvent(self, event):
         super().paintEvent(event)
+        if not self.boxes:
+            return
+            
         painter = QPainter(self)
         painter.setPen(QPen(QColor(*self.boxes[-1].color), 2))
         
