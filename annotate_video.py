@@ -1436,6 +1436,11 @@ class PyQt5VideoAnnotator(QMainWindow):
                 frame_count += 1
                 if frame_count % 30 == 0:
                     print(f"已处理 {frame_count} 帧")
+                    # 更新PyQt5窗口显示进度
+                    from PyQt5.QtCore import QMetaObject
+                    QMetaObject.invokeMethod(self, "update_progress", 
+                        Qt.QueuedConnection, 
+                        Q_ARG(int, frame_count))
             
             cap.release()
             out.release()
