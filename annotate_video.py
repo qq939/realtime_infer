@@ -865,6 +865,7 @@ def main():
             return
 
     print(f"\n开始标注: {video_path}")
+    print(f"DEBUG: main() - FIND = {FIND}")
     from PyQt5.QtWidgets import QApplication
     from annotate_video import PyQt5VideoAnnotator
     import sys
@@ -1161,8 +1162,9 @@ class PyQt5VideoAnnotator(QMainWindow):
             
             if self.added_points:
                 predictor_args['points'] = self.added_points
-                predictor_args['bboxes'] = []  # Empty list to pass SAM3 assertion
-                predictor_args['labels'] = [1] * len(self.added_points)
+                # 不传bboxes和labels，只传points
+                # SAM3要求bboxes和labels必须同时存在或同时不存在
+                # 如果只传points不传labels，SAM3会自动分割所有内容
             elif bboxes:
                 predictor_args['bboxes'] = bboxes
                 predictor_args['labels'] = [1] * len(bboxes)
@@ -1402,12 +1404,11 @@ class PyQt5VideoAnnotator(QMainWindow):
             else:
                 predictor_args['text'] = [""]
             
-            # 只传递points，不传bboxes（但SAM3要求bboxes和labels必须同时存在或同时不存在）
-            # 因此如果传points，就同时传空bboxes和labels
+            # 只传递points，不传bboxes和labels
+            # SAM3要求bboxes和labels必须同时存在或同时不存在
+            # 如果只传points不传labels，SAM3会自动分割所有内容
             if self.added_points:
                 predictor_args['points'] = self.added_points
-                predictor_args['bboxes'] = []
-                predictor_args['labels'] = [1] * len(self.added_points)
             elif bboxes:
                 predictor_args['bboxes'] = bboxes
                 predictor_args['labels'] = [1] * len(bboxes)
