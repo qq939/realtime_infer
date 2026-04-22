@@ -1161,6 +1161,7 @@ class PyQt5VideoAnnotator(QMainWindow):
             
             if self.added_points:
                 predictor_args['points'] = self.added_points
+                predictor_args['bboxes'] = []  # Empty list to pass SAM3 assertion
                 predictor_args['labels'] = [1] * len(self.added_points)
             elif bboxes:
                 predictor_args['bboxes'] = bboxes
@@ -1401,9 +1402,11 @@ class PyQt5VideoAnnotator(QMainWindow):
             else:
                 predictor_args['text'] = [""]
             
-            # 只传递points，不传bboxes
+            # 只传递points，不传bboxes（但SAM3要求bboxes和labels必须同时存在或同时不存在）
+            # 因此如果传points，就同时传空bboxes和labels
             if self.added_points:
                 predictor_args['points'] = self.added_points
+                predictor_args['bboxes'] = []
                 predictor_args['labels'] = [1] * len(self.added_points)
             elif bboxes:
                 predictor_args['bboxes'] = bboxes
