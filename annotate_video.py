@@ -896,6 +896,29 @@ class VideoLabel(QLabel):
         self.annotator = annotator
         
     def mousePressEvent(self, event):
+        if self.annotator and self.annotator.is_paused:
+            pos = event.pos()
+            x, y = pos.x(), pos.y()
+            
+            if event.button() == Qt.LeftButton:
+                # 左键：添加绿点
+                print(f"DEBUG: 添加绿点 at ({x}, {y})")
+                if self.annotator.added_points is None:
+                    self.annotator.added_points = []
+                self.annotator.added_points.append([x, y])
+            elif event.button() == Qt.RightButton:
+                # 右键：删除该位置的分割
+                print(f"DEBUG: 右键点击 at ({x}, {y})")
+                # 找到最近的分割并删除
+                if self.annotator.current_masks:
+                    for mask_id, mask in self.annotator.current_masks:
+                        h, w = mask.shape
+                        if 0 <= y < h and 0 <= x < w and mask[y, x] > 0:
+                            print(f"DEBUG: 删除分割 ID:{mask_id}")
+                            self.annotator.deleted_mask_ids[mask_id] = mask
+                            break
+            return
+        
         if event.button() == Qt.LeftButton:
             self.drawing = True
             self.start_point = event.pos()
@@ -976,6 +999,14 @@ class PyQt5VideoAnnotator(QMainWindow):
         self.button_clicked = False
         self.is_processing = False
         
+        # 新增：交互式分割状态
+        self.is_paused = False  # 是否暂停等待用户编辑
+        self.current_frame_idx = 0
+        self.deleted_mask_ids = {}  # {mask_id: mask_array} - 被删除的分割
+        self.added_points = []  # [(x, y), ...] - 用户添加的点
+        self.current_masks = []  # 当前帧的分割结果
+        self.current_mask_ids = []  # 当前帧分割的ID
+        
         self.init_ui()
         
     def init_ui(self):
@@ -998,11 +1029,12 @@ class PyQt5VideoAnnotator(QMainWindow):
         self.instructions_label = QLabel()
         self.instructions_label.setText(
             "<b>操作说明:</b><br>"
-            "1. 鼠标左键框选目标<br>"
-            "2. 可框选多个目标<br>"
-            "3. 按 'c' 撤销最后一个框<br>"
-            "4. 按 'q' 退出<br>"
-            "5. 点击按钮开始推理"
+            "1. 点击按钮开始推理<br>"
+            "2. 暂停后可编辑：<br>"
+            "   左键=添加绿点<br>"
+            "   右键=删除红点<br>"
+            "3. 点击继续推理<br>"
+            "4. 按 'q' 退出"
         )
         self.instructions_label.setStyleSheet("font-size: 14px; padding: 10px;")
         
@@ -1011,9 +1043,6 @@ class PyQt5VideoAnnotator(QMainWindow):
             "background-color: green; color: white; font-size: 16px; padding: 10px;"
         )
         self.start_button.clicked.connect(self.on_start_inference)
-        
-        self.undo_button = QPushButton("撤销 (c)")
-        self.undo_button.clicked.connect(self.undo_last_box)
         
         self.progress_label = QLabel("进度: 0 / 0 帧")
         self.progress_label.setStyleSheet("font-size: 14px; padding: 5px;")
@@ -1029,7 +1058,6 @@ class PyQt5VideoAnnotator(QMainWindow):
         right_layout.addWidget(self.progress_label)
         right_layout.addWidget(self.progress_bar)
         right_layout.addWidget(self.start_button)
-        right_layout.addWidget(self.undo_button)
         
         main_layout.addWidget(self.video_label)
         main_layout.addLayout(right_layout)
@@ -1053,6 +1081,245 @@ class PyQt5VideoAnnotator(QMainWindow):
         self.close()
         
     def on_start_inference(self):
+        if self.is_paused:
+            # 继续推理模式
+            self.is_paused = False
+            self.start_button.setText("暂停")
+            self.start_button.setStyleSheet(
+                "background-color: orange; color: white; font-size: 16px; padding: 10px;"
+            )
+            QTimer.singleShot(100, self.continue_inference)
+        else:
+            # 开始推理模式
+            self.is_processing = True
+            self.is_paused = True
+            self.current_frame_idx = 0
+            self.start_button.setText("继续推理")
+            self.start_button.setStyleSheet(
+                "background-color: orange; color: white; font-size: 16px; padding: 10px;"
+            )
+            QTimer.singleShot(100, self.process_first_frame)
+    
+    def process_first_frame(self):
+        print("DEBUG: 处理第一帧")
+        from annotate_video import FIND
+        bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes] if self.boxes else None
+        
+        try:
+            from ultralytics.models.sam import SAM3VideoSemanticPredictor
+            from annotate_video import get_device, SAM_MODEL_PATH
+            import numpy as np
+            
+            device = get_device()
+            overrides = dict(
+                conf=0.25,
+                task="segment",
+                mode="predict",
+                model=SAM_MODEL_PATH,
+                device=device,
+                half=False,
+                save=False,
+                verbose=False
+            )
+            predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+            
+            # 准备输入
+            if FIND and len(FIND) > 0:
+                text_prompt = FIND
+            elif self.added_points:
+                text_prompt = None
+            else:
+                text_prompt = [""]
+            
+            # 处理第一帧
+            cap = cv2.VideoCapture(str(self.video_path))
+            ret, frame = cap.read()
+            cap.release()
+            
+            if not ret:
+                print("无法读取视频帧")
+                return
+            
+            # 准备点提示
+            points = self.added_points if self.added_points else None
+            labels = [1] * len(points) if points else None
+            
+            # 进行分割
+            if points:
+                results = predictor.predict(frame, points=points, labels=labels)
+            elif bboxes:
+                results = predictor.predict(frame, bboxes=bboxes, labels=[1]*len(bboxes))
+            elif text_prompt:
+                results = predictor.predict(frame, text=text_prompt)
+            else:
+                results = predictor.predict(frame)
+            
+            r = next(results)
+            
+            # 获取分割结果
+            if hasattr(r, 'masks') and r.masks is not None:
+                masks = r.masks.data[0].cpu().numpy() if len(r.masks.data) > 0 else []
+                self.current_masks = []
+                self.current_mask_ids = []
+                
+                for i, mask in enumerate(masks):
+                    mask_binary = (mask > 0.5).astype(np.uint8)
+                    mask_id = i
+                    self.current_masks.append((mask_id, mask_binary))
+                    self.current_mask_ids.append(mask_id)
+            
+            # 更新显示（叠���分��结果）
+            self.frame = self.draw_masks_on_frame(frame)
+            self.update_frame()
+            
+            self.progress_label.setText(f"进度: {self.current_frame_idx + 1} / {self.frame_count} 帧")
+            self.progress_bar.setValue(self.current_frame_idx + 1)
+            
+            # 暂停等待用户编辑
+            self.is_paused = True
+            self.is_processing = False
+            
+        except Exception as e:
+            print(f"处理第一帧出错: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def draw_masks_on_frame(self, frame):
+        import numpy as np
+        import cv2
+        
+        result = frame.copy()
+        
+        for i, (mask_id, mask) in enumerate(self.current_masks):
+            if mask_id in self.deleted_mask_ids:
+                continue
+            
+            color = BOX_COLORS[i % len(BOX_COLORS)]
+            colored_mask = np.zeros_like(result)
+            colored_mask[:] = color
+            mask_bool = mask > 0
+            result[mask_bool] = cv2.addWeighted(result[mask_bool], 0.7, colored_mask[mask_bool], 0.3, 0)
+            
+            # 绘制轮廓
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(result, contours, -1, color, 2)
+            
+            # 标注ID
+            M = cv2.moments(contours[0]) if contours else None
+            if M and M["m00"] > 0:
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+                # 红色表示被删除
+                text_color = (0, 0, 255) if mask_id in self.deleted_mask_ids else color
+                cv2.putText(result, f"ID:{mask_id}", (cx-20, cy), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, text_color, 2)
+        
+        return result
+    
+    def continue_inference(self):
+        print("DEBUG: 继续推理")
+        self.is_processing = True
+        self.is_paused = False
+        
+        import threading
+        thread = threading.Thread(target=self.run_inference_thread_v2)
+        thread.daemon = True
+        thread.start()
+    
+    def run_inference_thread_v2(self):
+        print("DEBUG: run_inference_thread_v2 开始")
+        try:
+            from ultralytics.models.sam import SAM3VideoSemanticPredictor
+            from annotate_video import get_device, SAM_MODEL_PATH, FIND
+            import cv2
+            import numpy as np
+            from pathlib import Path
+            
+            video_path = str(self.video_path)
+            output_dir = str(self.output_dir)
+            bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes] if self.boxes else None
+            
+            device = get_device()
+            overrides = dict(
+                conf=0.25,
+                task="segment",
+                mode="predict",
+                model=SAM_MODEL_PATH,
+                device=device,
+                half=False,
+                save=True,
+                verbose=False
+            )
+            predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+            
+            cap = cv2.VideoCapture(video_path)
+            fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+            fourcc_str = ''.join([
+                chr(fourcc_int & 0xFF),
+                chr((fourcc_int >> 8) & 0xFF),
+                chr((fourcc_int >> 16) & 0xFF),
+                chr((fourcc_int >> 24) & 0xFF)
+            ])
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            output_filename = Path(video_path).stem + "_annotated" + Path(video_path).suffix
+            output_path = Path(output_dir) / output_filename
+            out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+            
+            # 准备提示
+            if FIND and len(FIND) > 0:
+                text_prompt = FIND
+            else:
+                text_prompt = [""]
+            
+            points = self.added_points if self.added_points else None
+            labels = [1] * len(points) if points else None
+            
+            predictor_args = {'source': video_path, 'stream': True}
+            if points:
+                predictor_args['points'] = points
+                predictor_args['labels'] = labels
+            elif bboxes:
+                predictor_args['bboxes'] = bboxes
+                predictor_args['labels'] = [1] * len(bboxes)
+            elif text_prompt:
+                predictor_args['text'] = text_prompt
+            
+            results = predictor(**predictor_args)
+            
+            frame_count = 0
+            for r in results:
+                orig_img = r.orig_img if hasattr(r, 'orig_img') else None
+                if orig_img is None:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+                    ret_temp, orig_img = cap.read()
+                    if not ret_temp:
+                        orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+                
+                if orig_img is not None:
+                    if len(orig_img.shape) == 2:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+                    elif orig_img.shape[2] == 4:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+                
+                out.write(orig_img)
+                frame_count += 1
+                if frame_count % 30 == 0:
+                    print(f"已处理 {frame_count} 帧")
+            
+            cap.release()
+            out.release()
+            print(f"✅ 标注视频已保存到: {output_path}")
+            
+        except Exception as e:
+            print(f"推理出错: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        self.finish_complete()
         print("DEBUG: 开始推理按钮被点击")
         self.button_clicked = True
         self.is_processing = True
