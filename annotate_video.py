@@ -1280,30 +1280,28 @@ class PyQt5VideoAnnotator(QMainWindow):
             output_path = Path(output_dir) / output_filename
             out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
             
-            # 准备提示
-            if FIND and len(FIND) > 0:
-                text_prompt = FIND
-            else:
-                text_prompt = [""]
-            
-            points = self.added_points if self.added_points else None
-            labels = [1] * len(points) if points else None
+            # 简化提示逻辑：直接传递所有可用的提示
+            print(f"DEBUG: FIND = {FIND}, added_points = {self.added_points}, bboxes = {bboxes}")
             
             predictor_args = {'source': video_path, 'stream': True}
-            if points:
-                predictor_args['points'] = points
-                predictor_args['labels'] = labels
-            elif bboxes:
-                predictor_args['bboxes'] = bboxes
-                predictor_args['labels'] = [1] * len(bboxes)
-            elif text_prompt and len(text_prompt) > 0:
-                predictor_args['text'] = text_prompt
+            
+            # 始终传递text（即使为空也有默认）
+            if FIND and len(FIND) > 0:
+                predictor_args['text'] = FIND
             else:
-                # 强制使用空文本作为提示
-                print("DEBUG: 使用空文本提示")
                 predictor_args['text'] = [""]
             
-            print(f"DEBUG: predictor_args keys = {list(predictor_args.keys())}")
+            # 额外传递points
+            if self.added_points:
+                predictor_args['points'] = self.added_points
+                predictor_args['labels'] = [1] * len(self.added_points)
+            
+            # 额外传递bboxes
+            if bboxes:
+                predictor_args['bboxes'] = bboxes
+                predictor_args['labels'] = [1] * len(bboxes)
+            
+            print(f"DEBUG: predictor_args = {list(predictor_args.keys())}")
             
             results = predictor(**predictor_args)
             
