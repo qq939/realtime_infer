@@ -1114,7 +1114,7 @@ class PyQt5VideoAnnotator(QMainWindow):
             overrides = dict(
                 conf=0.25,
                 task="segment",
-                mode="predict",
+                mode="video",
                 model=SAM_MODEL_PATH,
                 device=device,
                 half=False,
@@ -1123,37 +1123,29 @@ class PyQt5VideoAnnotator(QMainWindow):
             )
             predictor = SAM3VideoSemanticPredictor(overrides=overrides)
             
-            # 准备输入
+            # 使用视频流 + stream=True
+            predictor_args = {
+                'source': str(self.video_path),
+                'stream': True
+            }
+            
+            # 传递所有提示
             if FIND and len(FIND) > 0:
-                text_prompt = FIND
-            elif self.added_points:
-                text_prompt = None
+                predictor_args['text'] = FIND
             else:
-                text_prompt = [""]
+                predictor_args['text'] = [""]
             
-            # 处理第一帧
-            cap = cv2.VideoCapture(str(self.video_path))
-            ret, frame = cap.read()
-            cap.release()
+            if self.added_points:
+                predictor_args['points'] = self.added_points
+                predictor_args['labels'] = [1] * len(self.added_points)
             
-            if not ret:
-                print("无法读取视频帧")
-                return
+            if bboxes:
+                predictor_args['bboxes'] = bboxes
+                predictor_args['labels'] = [1] * len(bboxes)
             
-            # 准备点提示
-            points = self.added_points if self.added_points else None
-            labels = [1] * len(points) if points else None
+            results = predictor(**predictor_args)
             
-            # 进行分割
-            if points:
-                results = predictor(frame, points=points, labels=labels)
-            elif bboxes:
-                results = predictor(frame, bboxes=bboxes, labels=[1]*len(bboxes))
-            elif text_prompt:
-                results = predictor(frame, text=text_prompt)
-            else:
-                results = predictor(frame)
-            
+            # 只取第一帧的结果
             r = next(results)
             
             # 获取分割结果
@@ -1254,7 +1246,7 @@ class PyQt5VideoAnnotator(QMainWindow):
             overrides = dict(
                 conf=0.25,
                 task="segment",
-                mode="predict",
+                mode="video",
                 model=SAM_MODEL_PATH,
                 device=device,
                 half=False,
