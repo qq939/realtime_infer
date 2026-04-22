@@ -425,10 +425,11 @@ class VideoAnnotator:
         self.cap.release()
 
     def process_video(self):
-        if not self.boxes and not FIND:
-            print("错误：文字和标注框至少要有一个！")
-            print("请重新运行程序并添加物品名称或绘制标注框")
-            return
+        # 允许没有文本提示词也没有矩形框的情况
+        # if not self.boxes and not FIND:
+        #     print("错误：文字和标注框至少要有一个！")
+        #     print("请重新运行程序并添加物品名称或绘制标注框")
+        #     return
 
         bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes] if self.boxes else None
 
@@ -956,9 +957,13 @@ class PyQt5VideoAnnotator(QMainWindow):
         if not self.ret:
             raise ValueError("无法读取视频帧")
             
+        self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            
         self.boxes = []
         self.color_index = 0
         self.button_clicked = False
+        self.is_processing = False
         
         self.init_ui()
         
@@ -986,26 +991,40 @@ class PyQt5VideoAnnotator(QMainWindow):
             "2. 可框选多个目标<br>"
             "3. 按 'c' 撤销最后一个框<br>"
             "4. 按 'q' 退出<br>"
-            "5. 点击绿色按钮完成标注"
+            "5. 点击按钮开始推理"
         )
         self.instructions_label.setStyleSheet("font-size: 14px; padding: 10px;")
         
-        self.complete_button = QPushButton("完成标注")
-        self.complete_button.setStyleSheet(
+        self.start_button = QPushButton("开始推理")
+        self.start_button.setStyleSheet(
             "background-color: green; color: white; font-size: 16px; padding: 10px;"
         )
-        self.complete_button.clicked.connect(self.finish_annotation)
+        self.start_button.clicked.connect(self.on_start_inference)
         
         self.undo_button = QPushButton("撤销 (c)")
         self.undo_button.clicked.connect(self.undo_last_box)
         
+        self.progress_label = QLabel("进度: 0 / 0 帧")
+        self.progress_label.setStyleSheet("font-size: 14px; padding: 5px;")
+        
+        from PyQt5.QtWidgets import QProgressBar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        
         right_layout.addWidget(self.instructions_label)
         right_layout.addStretch()
-        right_layout.addWidget(self.complete_button)
+        right_layout.addWidget(self.progress_label)
+        right_layout.addWidget(self.progress_bar)
+        right_layout.addWidget(self.start_button)
         right_layout.addWidget(self.undo_button)
         
         main_layout.addWidget(self.video_label)
         main_layout.addLayout(right_layout)
+        
+        self.progress_label.setText(f"进度: 0 / {self.frame_count} 帧")
+        self.progress_bar.setMaximum(self.frame_count)
         
         self.update_frame()
         
@@ -1020,6 +1039,40 @@ class PyQt5VideoAnnotator(QMainWindow):
             
     def finish_annotation(self):
         self.button_clicked = True
+        self.close()
+        
+    def on_start_inference(self):
+        self.button_clicked = True
+        self.is_processing = True
+        self.start_button.setEnabled(False)
+        
+        QTimer.singleShot(100, self.start_processing)
+        
+    def start_processing(self):
+        import threading
+        thread = threading.Thread(target=self.run_inference_thread)
+        thread.daemon = True
+        thread.start()
+        
+    def run_inference_thread(self):
+        from annotate_video import VideoAnnotator
+        video_annotator = VideoAnnotator(self.video_path, str(self.output_dir))
+        video_annotator.boxes = self.boxes
+        
+        try:
+            video_annotator.process_video()
+        except Exception as e:
+            print(f"推理出错: {e}")
+        
+        self.finish_complete()
+        
+    def update_progress(self, frame_idx, total_frames):
+        self.progress_label.setText(f"进度: {frame_idx} / {total_frames} 帧")
+        self.progress_bar.setValue(frame_idx)
+        
+    def finish_complete(self):
+        self.progress_label.setText("推理完成！")
+        self.is_processing = False
         self.close()
         
     def undo_last_box(self):
