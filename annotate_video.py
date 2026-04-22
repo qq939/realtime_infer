@@ -1190,6 +1190,17 @@ class PyQt5VideoAnnotator(QMainWindow):
         
         result = frame.copy()
         
+        # 绘制用户添加的点（绿色）
+        if self.added_points:
+            for pt in self.added_points:
+                x, y = pt[0], pt[1]
+                cv2.circle(result, (x, y), 5, (0, 255, 0), -1)
+        
+        # 绘制被删除的区域（红色）
+        for mask_id, mask in self.deleted_mask_ids.items():
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(result, contours, -1, (0, 0, 255), 2)
+        
         for i, (mask_id, mask) in enumerate(self.current_masks):
             if mask_id in self.deleted_mask_ids:
                 continue
