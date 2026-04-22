@@ -1146,13 +1146,13 @@ class PyQt5VideoAnnotator(QMainWindow):
             
             # 进行分割
             if points:
-                results = predictor.predict(frame, points=points, labels=labels)
+                results = predictor(frame, points=points, labels=labels)
             elif bboxes:
-                results = predictor.predict(frame, bboxes=bboxes, labels=[1]*len(bboxes))
+                results = predictor(frame, bboxes=bboxes, labels=[1]*len(bboxes))
             elif text_prompt:
-                results = predictor.predict(frame, text=text_prompt)
+                results = predictor(frame, text=text_prompt)
             else:
-                results = predictor.predict(frame)
+                results = predictor(frame)
             
             r = next(results)
             
