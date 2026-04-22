@@ -203,6 +203,130 @@ class TestPyQt5VideoAnnotator(unittest.TestCase):
         self.assertIsNotNone(DST_DIR)
         self.assertIsNotNone(WINDOW_NAME)
 
+    def test_10_added_points_structure(self):
+        """测试 added_points 数据结构"""
+        video_files = list(self.src_dir.glob("*.mp4"))
+        if len(video_files) == 0:
+            self.skipTest("没有测试视频文件")
+        
+        from PyQt5.QtWidgets import QApplication
+        from annotate_video import PyQt5VideoAnnotator
+        
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+        
+        annotator = PyQt5VideoAnnotator(str(video_files[0]), str(self.dst_dir))
+        
+        annotator.added_points = [[100, 100], [200, 200]]
+        
+        self.assertEqual(len(annotator.added_points), 2)
+        self.assertEqual(annotator.added_points[0], [100, 100])
+        self.assertEqual(annotator.added_points[1], [200, 200])
+    
+    def test_11_deleted_mask_ids_structure(self):
+        """测试 deleted_mask_ids 数据结构"""
+        video_files = list(self.src_dir.glob("*.mp4"))
+        if len(video_files) == 0:
+            self.skipTest("没有测试视频文件")
+        
+        from PyQt5.QtWidgets import QApplication
+        from annotate_video import PyQt5VideoAnnotator
+        
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+        
+        annotator = PyQt5VideoAnnotator(str(video_files[0]), str(self.dst_dir))
+        
+        frame = annotator.frame
+        fh, fw = frame.shape[:2]
+        
+        mask = np.zeros((fh, fw), dtype=np.uint8)
+        cv2.rectangle(mask, (fw//4, fh//4), (3*fw//4, 3*fh//4), 255, -1)
+        
+        annotator.deleted_mask_ids[0] = mask
+        annotator.current_mask_ids = [0, 1, 2]
+        
+        self.assertIn(0, annotator.deleted_mask_ids)
+        self.assertEqual(annotator.current_mask_ids, [0, 1, 2])
+    
+    def test_12_filter_masks_by_iou(self):
+        """测试 IoU 过滤功能"""
+        video_files = list(self.src_dir.glob("*.mp4"))
+        if len(video_files) == 0:
+            self.skipTest("没有测试视频文件")
+        
+        from PyQt5.QtWidgets import QApplication
+        from annotate_video import PyQt5VideoAnnotator
+        
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+        
+        annotator = PyQt5VideoAnnotator(str(video_files[0]), str(self.dst_dir))
+        
+        frame = annotator.frame
+        fh, fw = frame.shape[:2]
+        
+        mask1 = np.zeros((fh, fw), dtype=np.uint8)
+        mask2 = np.zeros((fh, fw), dtype=np.uint8)
+        mask3 = np.zeros((fh, fw), dtype=np.uint8)
+        cv2.rectangle(mask1, (100, 100), (200, 200), 255, -1)
+        cv2.rectangle(mask2, (100, 100), (200, 200), 255, -1)
+        cv2.rectangle(mask3, (150, 150), (250, 250), 255, -1)
+        
+        annotator.current_masks = [(0, mask1), (1, mask2), (2, mask3)]
+        annotator.current_mask_ids = [0, 1, 2]
+        annotator.deleted_mask_ids = {0: mask1}
+        
+        annotator.filter_masks_by_iou(iou_threshold=0.3)
+        
+        self.assertIn(0, annotator.deleted_mask_ids)
+        self.assertIn(1, annotator.deleted_mask_ids)
+    
+    def test_13_calculate_iou(self):
+        """测试 IoU 计算"""
+        video_files = list(self.src_dir.glob("*.mp4"))
+        if len(video_files) == 0:
+            self.skipTest("没有测试视频文件")
+        
+        from PyQt5.QtWidgets import QApplication
+        from annotate_video import PyQt5VideoAnnotator
+        
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+        
+        annotator = PyQt5VideoAnnotator(str(video_files[0]), str(self.dst_dir))
+        
+        frame = annotator.frame
+        fh, fw = frame.shape[:2]
+        
+        mask1 = np.zeros((fh, fw), dtype=np.uint8)
+        mask2 = np.zeros((fh, fw), dtype=np.uint8)
+        
+        cv2.rectangle(mask1, (100, 100), (200, 200), 255, -1)
+        cv2.rectangle(mask2, (100, 100), (200, 200), 255, -1)
+        iou_full = annotator.calculate_iou(mask1, mask2)
+        self.assertAlmostEqual(iou_full, 1.0, places=1)
+        
+        mask2 = np.zeros((fh, fw), dtype=np.uint8)
+        cv2.rectangle(mask2, (150, 150), (250, 250), 255, -1)
+        iou_partial = annotator.calculate_iou(mask1, mask2)
+        self.assertGreater(iou_partial, 0.0)
+        self.assertLess(iou_partial, 1.0)
+        
+        mask2 = np.zeros((fh, fw), dtype=np.uint8)
+        cv2.rectangle(mask2, (300, 300), (400, 400), 255, -1)
+        iou_none = annotator.calculate_iou(mask1, mask2)
+        self.assertEqual(iou_none, 0.0)
+    
+    def test_14_find_parameter(self):
+        """测试 FIND 参数是否正确"""
+        from annotate_video import FIND
+        self.assertIsInstance(FIND, list)
+
 if __name__ == '__main__':
     print(f"Python: {sys.version}")
     print(f"Test start: {time.strftime('%Y-%m-%d %H:%M:%S')}")
