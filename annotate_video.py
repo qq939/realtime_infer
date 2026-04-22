@@ -1138,8 +1138,7 @@ class PyQt5VideoAnnotator(QMainWindow):
             if self.added_points:
                 predictor_args['points'] = self.added_points
                 predictor_args['labels'] = [1] * len(self.added_points)
-            
-            if bboxes:
+            elif bboxes:
                 predictor_args['bboxes'] = bboxes
                 predictor_args['labels'] = [1] * len(bboxes)
             
@@ -1285,19 +1284,17 @@ class PyQt5VideoAnnotator(QMainWindow):
             
             predictor_args = {'source': video_path, 'stream': True}
             
-            # 始终传递text（即使为空也有默认）
+            # 始终传递text
             if FIND and len(FIND) > 0:
                 predictor_args['text'] = FIND
             else:
                 predictor_args['text'] = [""]
             
-            # 额外传递points
+            # 只传递points，不传bboxes
             if self.added_points:
                 predictor_args['points'] = self.added_points
                 predictor_args['labels'] = [1] * len(self.added_points)
-            
-            # 额外传递bboxes
-            if bboxes:
+            elif bboxes:
                 predictor_args['bboxes'] = bboxes
                 predictor_args['labels'] = [1] * len(bboxes)
             
