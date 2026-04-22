@@ -25,6 +25,10 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Tuple, Dict
 from PIL import Image, ImageDraw, ImageFont
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                             QLabel, QPushButton, QMessageBox, QApplication)
+from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QTimer
+from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 
 def put_chinese_text(img, text, position, font_size=20, color=(255, 255, 255)):
     """在图像上绘制中文文本（使用UTF-8编码）"""
@@ -860,8 +864,192 @@ def main():
             return
 
     print(f"\n开始标注: {video_path}")
-    annotator = VideoAnnotator(video_path, DST_DIR)
-    annotator.run()
+    run_pyqt5_annotator(video_path, DST_DIR)
 
 if __name__ == "__main__":
     main()
+
+class VideoLabel(QLabel):
+    box_drawn = pyqtSignal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self.drawing = False
+        self.start_point = QPoint()
+        self.end_point = QPoint()
+        self.boxes = []
+        self.current_box = None
+        self.color_index = 0
+        self.annotator = None
+        
+    def set_annotator(self, annotator):
+        self.annotator = annotator
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drawing = True
+            self.start_point = event.pos()
+            color = BOX_COLORS[self.color_index % len(BOX_COLORS)]
+            self.current_box = AnnotationBox(
+                self.start_point.x(), self.start_point.y(),
+                self.start_point.x(), self.start_point.y(), color
+            )
+        super().mousePressEvent(event)
+        
+    def mouseMoveEvent(self, event):
+        if self.drawing and self.current_box:
+            self.end_point = event.pos()
+            self.current_box.x2 = self.end_point.x()
+            self.current_box.y2 = self.end_point.y()
+            self.update()
+        super().mouseMoveEvent(event)
+        
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if self.drawing and self.current_box:
+                self.end_point = event.pos()
+                self.current_box.x2 = self.end_point.x()
+                self.current_box.y2 = self.end_point.y()
+                self.current_box.normalize()
+                self.boxes.append(self.current_box)
+                self.color_index += 1
+                self.drawing = False
+                self.current_box = None
+                self.update()
+            else:
+                self.drawing = False
+                self.current_box = None
+        super().mouseReleaseEvent(event)
+        
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setPen(QPen(QColor(*self.boxes[-1].color), 2))
+        
+        for box in self.boxes:
+            painter.setPen(QPen(QColor(*box.color), 2))
+            painter.drawRect(box.x1, box.y1, box.x2 - box.x1, box.y2 - box.y1)
+            painter.setPen(QPen(QColor(*box.color), 1))
+            label = f"目标 {self.boxes.index(box) + 1}"
+            painter.drawText(box.x1, box.y1 - 5, label)
+            
+        if self.current_box and self.drawing:
+            painter.setPen(QPen(QColor(*self.current_box.color), 2))
+            painter.drawRect(
+                self.current_box.x1, self.current_box.y1,
+                self.current_box.x2 - self.current_box.x1, self.current_box.y2 - self.current_box.y1
+            )
+
+class PyQt5VideoAnnotator(QMainWindow):
+    def __init__(self, video_path: str, output_dir: str):
+        super().__init__()
+        self.video_path = video_path
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.cap = cv2.VideoCapture(video_path)
+        if not self.cap.isOpened():
+            raise ValueError(f"无法打开视频: {video_path}")
+            
+        self.ret, self.frame = self.cap.read()
+        if not self.ret:
+            raise ValueError("无法读取视频帧")
+            
+        self.boxes = []
+        self.color_index = 0
+        self.button_clicked = False
+        
+        self.init_ui()
+        
+    def init_ui(self):
+        self.setWindowTitle(WINDOW_NAME)
+        self.setGeometry(100, 100, self.frame.shape[1] + 300, self.frame.shape[0] + 100)
+        
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        main_layout = QHBoxLayout()
+        central_widget.setLayout(main_layout)
+        
+        self.video_label = VideoLabel()
+        self.video_label.set_annotator(self)
+        self.video_label.boxes = self.boxes
+        self.video_label.color_index = self.color_index
+        
+        right_layout = QVBoxLayout()
+        
+        self.instructions_label = QLabel()
+        self.instructions_label.setText(
+            "<b>操作说明:</b><br>"
+            "1. 鼠标左键框选目标<br>"
+            "2. 可框选多个目标<br>"
+            "3. 按 'c' 撤销最后一个框<br>"
+            "4. 按 'q' 退出<br>"
+            "5. 点击绿色按钮完成标注"
+        )
+        self.instructions_label.setStyleSheet("font-size: 14px; padding: 10px;")
+        
+        self.complete_button = QPushButton("完成标注")
+        self.complete_button.setStyleSheet(
+            "background-color: green; color: white; font-size: 16px; padding: 10px;"
+        )
+        self.complete_button.clicked.connect(self.finish_annotation)
+        
+        self.undo_button = QPushButton("撤销 (c)")
+        self.undo_button.clicked.connect(self.undo_last_box)
+        
+        right_layout.addWidget(self.instructions_label)
+        right_layout.addStretch()
+        right_layout.addWidget(self.complete_button)
+        right_layout.addWidget(self.undo_button)
+        
+        main_layout.addWidget(self.video_label)
+        main_layout.addLayout(right_layout)
+        
+        self.update_frame()
+        
+    def update_frame(self):
+        if self.frame is not None:
+            rgb_frame = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb_frame.shape
+            bytes_per_line = ch * w
+            qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
+            self.video_label.setPixmap(pixmap)
+            
+    def finish_annotation(self):
+        self.button_clicked = True
+        self.close()
+        
+    def undo_last_box(self):
+        if self.boxes:
+            removed = self.boxes.pop()
+            self.color_index = max(0, self.color_index - 1)
+            self.video_label.boxes = self.boxes
+            self.video_label.color_index = self.color_index
+            self.video_label.update()
+            print(f"已撤销: {removed}")
+        else:
+            print("没有可撤销的标注框")
+            
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Q:
+            print("用户退出")
+            self.close()
+        elif event.key() == Qt.Key_C:
+            self.undo_last_box()
+        super().keyPressEvent(event)
+        
+    def closeEvent(self, event):
+        if not self.button_clicked:
+            cv2.destroyAllWindows()
+            self.cap.release()
+        event.accept()
+
+def run_pyqt5_annotator(video_path: str, output_dir: str):
+    app = QApplication([])
+    annotator = PyQt5VideoAnnotator(video_path, output_dir)
+    annotator.show()
+    app.exec_()
+    return annotator
