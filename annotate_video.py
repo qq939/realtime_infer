@@ -865,11 +865,15 @@ def main():
             return
 
     print(f"\n开始标注: {video_path}")
-    # 重新执行整个脚本以便加载所有函数定义
-    import subprocess
+    from PyQt5.QtWidgets import QApplication
+    from annotate_video import PyQt5VideoAnnotator
     import sys
-    subprocess.run([sys.executable, __file__])
-    sys.exit(0)
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(sys.argv)
+    annotator = PyQt5VideoAnnotator(video_path, DST_DIR)
+    annotator.show()
+    app.exec_()
 
 if __name__ == "__main__":
     main()
