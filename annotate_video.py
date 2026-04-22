@@ -1188,6 +1188,7 @@ class PyQt5VideoAnnotator(QMainWindow):
         import cv2
         
         result = frame.copy()
+        fh, fw = result.shape[:2]
         
         # 绘制用户添加的点（绿色）
         if self.added_points:
@@ -1197,12 +1198,17 @@ class PyQt5VideoAnnotator(QMainWindow):
         
         # 绘制被删除的区域（红色）
         for mask_id, mask in self.deleted_mask_ids.items():
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            mask_resized = cv2.resize(mask, (fw, fh))
+            contours, _ = cv2.findContours(mask_resized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(result, contours, -1, (0, 0, 255), 2)
         
         for i, (mask_id, mask) in enumerate(self.current_masks):
             if mask_id in self.deleted_mask_ids:
                 continue
+            
+            # 调整 mask 尺寸以匹配 frame
+            if mask.shape[:2] != (fh, fw):
+                mask = cv2.resize(mask, (fw, fh))
             
             color = BOX_COLORS[i % len(BOX_COLORS)]
             colored_mask = np.zeros_like(result)
@@ -1211,7 +1217,7 @@ class PyQt5VideoAnnotator(QMainWindow):
             result[mask_bool] = cv2.addWeighted(result[mask_bool], 0.7, colored_mask[mask_bool], 0.3, 0)
             
             # 绘制轮廓
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(result, contours, -1, color, 2)
             
             # 标注ID
