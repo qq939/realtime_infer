@@ -1049,17 +1049,21 @@ class PyQt5VideoAnnotator(QMainWindow):
         self.close()
         
     def on_start_inference(self):
+        print("DEBUG: 开始推理按钮被点击")
         self.button_clicked = True
         self.is_processing = True
         self.start_button.setEnabled(False)
+        self.start_button.setText("推理中...")
         
         QTimer.singleShot(100, self.start_processing)
         
     def start_processing(self):
+        print("DEBUG: 开始启动线程")
         import threading
         thread = threading.Thread(target=self.run_inference_thread)
         thread.daemon = True
         thread.start()
+        print("DEBUG: 线程已启动")
         
     def run_inference_thread(self):
         from annotate_video import VideoAnnotator
