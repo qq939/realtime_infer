@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import List, Tuple, Dict
 from PIL import Image, ImageDraw, ImageFont
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QPushButton, QMessageBox, QApplication)
+                             QLabel, QPushButton, QMessageBox, QApplication, QLineEdit)
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 
@@ -1036,7 +1036,7 @@ class PyQt5VideoAnnotator(QMainWindow):
         
     def init_ui(self):
         self.setWindowTitle(WINDOW_NAME)
-        self.setGeometry(100, 100, self.frame.shape[1] + 300, self.frame.shape[0] + 100)
+        self.setGeometry(100, 100, self.frame.shape[1] + 350, self.frame.shape[0] + 100)
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -1051,23 +1051,43 @@ class PyQt5VideoAnnotator(QMainWindow):
         
         right_layout = QVBoxLayout()
         
-        self.instructions_label = QLabel()
-        self.instructions_label.setText(
-            "<b>操作说明:</b><br>"
-            "1. 点击按钮开始推理<br>"
-            "2. 暂停后可编辑：<br>"
-            "   左键=添加绿点<br>"
-            "   右键=删除红点<br>"
-            "3. 点击继续推理<br>"
-            "4. 按 'q' 退出"
-        )
-        self.instructions_label.setStyleSheet("font-size: 14px; padding: 10px;")
+        # 文本输入区域
+        self.text_label = QLabel("<b>文本提示词:</b> (输入后按回车)")
+        self.text_input = QLineEdit()
+        self.text_input.setPlaceholderText("输入要查找���物品名称，如: brush")
+        self.text_input.setStyleSheet("padding: 5px; font-size: 14px;")
+        self.text_input.returnPressed.connect(self.on_text_input_changed)
+        
+        self.text_prompt_display = QLabel("当前文本: 无")
+        self.text_prompt_display.setStyleSheet("font-size: 12px; color: blue;")
+        
+        # 视频文件选择
+        self.video_label = QLabel("<b>选择视频:</b>")
+        
+        # 添加工具栏
+        toolbar_layout = QHBoxLayout()
         
         self.start_button = QPushButton("开始推理")
         self.start_button.setStyleSheet(
             "background-color: green; color: white; font-size: 16px; padding: 10px;"
         )
         self.start_button.clicked.connect(self.on_start_inference)
+        
+        self.undo_button = QPushButton("撤销")
+        self.undo_button.clicked.connect(self.undo_last_box)
+        
+        self.instructions_label = QLabel()
+        self.instructions_label.setText(
+            "<b>操作说明:</b><br>"
+            "1. 输入文本提示词，按回车<br>"
+            "2. 点击按钮开始推理<br>"
+            "3. 暂停后可编辑：<br>"
+            "   左键=添加绿点<br>"
+            "   右键=删除红点<br>"
+            "4. 点击继续推理<br>"
+            "5. 按 'q' 退出"
+        )
+        self.instructions_label.setStyleSheet("font-size: 12px; padding: 10px;")
         
         self.progress_label = QLabel("进度: 0 / 0 帧")
         self.progress_label.setStyleSheet("font-size: 14px; padding: 5px;")
@@ -1078,11 +1098,15 @@ class PyQt5VideoAnnotator(QMainWindow):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         
+        right_layout.addWidget(self.text_label)
+        right_layout.addWidget(self.text_input)
+        right_layout.addWidget(self.text_prompt_display)
         right_layout.addWidget(self.instructions_label)
         right_layout.addStretch()
         right_layout.addWidget(self.progress_label)
         right_layout.addWidget(self.progress_bar)
         right_layout.addWidget(self.start_button)
+        right_layout.addWidget(self.undo_button)
         
         main_layout.addWidget(self.video_label)
         main_layout.addLayout(right_layout)
@@ -1104,6 +1128,17 @@ class PyQt5VideoAnnotator(QMainWindow):
     def finish_annotation(self):
         self.button_clicked = True
         self.close()
+    
+    def on_text_input_changed(self):
+        text = self.text_input.text().strip()
+        if text:
+            self.text_prompt = [text]
+            self.text_prompt_display.setText(f"当前文本: {text}")
+            self.text_input.clear()
+            print(f"DEBUG: 设置文本提示词: {self.text_prompt}")
+        else:
+            self.text_prompt = []
+            self.text_prompt_display.setText("当前文本: 无")
         
     def on_start_inference(self):
         if self.is_paused:
