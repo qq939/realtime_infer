@@ -1141,8 +1141,14 @@ class PyQt5VideoAnnotator(QMainWindow):
                 }
             
             from annotate_video import FIND
-            if FIND:
+            if FIND and len(FIND) > 0:
                 predictor_args['text'] = FIND
+            
+            # 如果没有提示词，提供一个默认提示来触发自动分割
+            if 'text' not in predictor_args and (not bboxes or len(bboxes) == 0):
+                print("警告: 没有文本提示词或标注框，将使用自动分割模式")
+                # 使用空文本作为提示，SAM3 会尝试分割所有内容
+                predictor_args['text'] = [""]
             
             results = predictor(**predictor_args)
             
