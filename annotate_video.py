@@ -1066,14 +1066,19 @@ class PyQt5VideoAnnotator(QMainWindow):
         print("DEBUG: 线程已启动")
         
     def run_inference_thread(self):
+        print("DEBUG: run_inference_thread 开始")
         from annotate_video import VideoAnnotator
-        video_annotator = VideoAnnotator(self.video_path, str(self.output_dir))
+        print(f"DEBUG: video_path = {self.video_path}, output_dir = {self.output_dir}")
+        video_annotator = VideoAnnotator(str(self.video_path), str(self.output_dir))
         video_annotator.boxes = self.boxes
+        print(f"DEBUG: boxes = {self.boxes}")
         
         try:
             video_annotator.process_video()
         except Exception as e:
             print(f"推理出错: {e}")
+            import traceback
+            traceback.print_exc()
         
         self.finish_complete()
         
