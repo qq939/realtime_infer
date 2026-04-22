@@ -901,22 +901,43 @@ class VideoLabel(QLabel):
             x, y = pos.x(), pos.y()
             
             if event.button() == Qt.LeftButton:
-                # 左键：添加绿点
-                print(f"DEBUG: 添加绿点 at ({x}, {y})")
-                if self.annotator.added_points is None:
-                    self.annotator.added_points = []
-                self.annotator.added_points.append([x, y])
-            elif event.button() == Qt.RightButton:
-                # 右键：删除该位置的分割
-                print(f"DEBUG: 右键点击 at ({x}, {y})")
-                # 找到最近的分割并删除
+                # 检查是否点击在分割区域内
+                clicked_mask_id = None
                 if self.annotator.current_masks:
                     for mask_id, mask in self.annotator.current_masks:
+                        if mask_id in self.annotator.deleted_mask_ids:
+                            continue
                         h, w = mask.shape
-                        if 0 <= y < h and 0 <= x < w and mask[y, x] > 0:
-                            print(f"DEBUG: 删除分割 ID:{mask_id}")
-                            self.annotator.deleted_mask_ids[mask_id] = mask
+                        if len(mask.shape) == 3:
+                            if mask[y, x, 0] > 0:
+                                clicked_mask_id = mask_id
+                                break
+                        elif len(mask.shape) == 2:
+                            if mask[y, x] > 0:
+                                clicked_mask_id = mask_id
+                                break
+                
+                if clicked_mask_id is not None:
+                    # 点击在分割区域内 -> 添加红点（删除该ID）
+                    print(f"DEBUG: 点击在分割ID:{clicked_mask_id}区域内 at ({x}, {y})，添加红点")
+                    mask = None
+                    for mid, m in self.annotator.current_masks:
+                        if mid == clicked_mask_id:
+                            mask = m
                             break
+                    if mask is not None:
+                        self.annotator.deleted_mask_ids[clicked_mask_id] = mask
+                        self.annotator.add_deleted_point([x, y], is_red=True)
+                    
+                    # IoU 过滤：与被删除mask的IoU超过0.3的mask也要被删除
+                    self.annotator.filter_masks_by_iou()
+                else:
+                    # 点击在空白区域 -> 添加绿点（新增分割点）
+                    print(f"DEBUG: 点击在空白区域 at ({x}, {y})，添加绿点")
+                    if self.annotator.added_points is None:
+                        self.annotator.added_points = []
+                    self.annotator.added_points.append([x, y])
+                    self.annotator.add_deleted_point([x, y], is_red=False)
             return
         
         if event.button() == Qt.LeftButton:
@@ -1003,7 +1024,8 @@ class PyQt5VideoAnnotator(QMainWindow):
         self.is_paused = False  # 是否暂停等待用户编辑
         self.current_frame_idx = 0
         self.deleted_mask_ids = {}  # {mask_id: mask_array} - 被删除的分割
-        self.added_points = []  # [(x, y), ...] - 用户添加的点
+        self.deleted_points = []  # [(x, y, is_red), ...] - 被删除的点（红色）
+        self.added_points = []  # [(x, y), ...] - 用户添加的点（绿色）
         self.current_masks = []  # 当前帧的分割结果
         self.current_mask_ids = []  # 当前帧分割的ID
         
@@ -1257,7 +1279,60 @@ class PyQt5VideoAnnotator(QMainWindow):
                 cv2.putText(result, f"ID:{mask_id}", (cx-20, cy), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, text_color, 2)
         
+        # 绘制删除点（红色）和新增点（绿色）
+        for pt in self.deleted_points:
+            x, y, is_red = pt
+            if is_red:
+                cv2.circle(result, (x, y), 8, (0, 0, 255), -1)  # 红色圆点
+        
+        for pt in self.added_points:
+            x, y = pt[0], pt[1]
+            cv2.circle(result, (x, y), 8, (0, 255, 0), -1)  # 绿色圆点
+        
         return result
+    
+    def add_deleted_point(self, point, is_red=True):
+        """添加删除点（红色）"""
+        if is_red:
+            if self.deleted_points is None:
+                self.deleted_points = []
+            self.deleted_points.append((point[0], point[1], True))
+    
+    def filter_masks_by_iou(self, iou_threshold=0.3):
+        """过滤与被删除mask的IoU超过阈值的mask"""
+        import numpy as np
+        
+        for deleted_id, deleted_mask in list(self.deleted_mask_ids.items()):
+            if deleted_id in self.current_mask_ids:
+                self.current_mask_ids.remove(deleted_id)
+        
+        for i in range(len(self.current_masks) - 1, -1, -1):
+            mask_id, mask = self.current_masks[i]
+            if mask_id in self.deleted_mask_ids:
+                continue
+            
+            for deleted_mask in self.deleted_mask_ids.values():
+                iou = self.calculate_iou(mask, deleted_mask)
+                if iou > iou_threshold:
+                    print(f"DEBUG: IoU={iou:.2f} > 0.3，删除mask ID:{mask_id}")
+                    self.deleted_mask_ids[mask_id] = mask
+                    self.current_mask_ids.remove(mask_id)
+                    break
+    
+    def calculate_iou(self, mask1, mask2):
+        """计算两个mask的IoU"""
+        import numpy as np
+        
+        mask1_bool = mask1 > 0
+        mask2_bool = mask2 > 0
+        
+        intersection = np.logical_and(mask1_bool, mask2_bool).sum()
+        union = np.logical_or(mask1_bool, mask2_bool).sum()
+        
+        if union == 0:
+            return 0.0
+        
+        return intersection / union
     
     def continue_inference(self):
         print("DEBUG: 继续推理")
