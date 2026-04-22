@@ -1029,6 +1029,7 @@ class PyQt5VideoAnnotator(QMainWindow):
         self.current_masks = []  # 当前帧的分割结果
         self.current_mask_ids = []  # 当前帧分割的ID
         self.text_prompt = FIND if FIND else []  # 文本提示词（保存实例变量）
+        print(f"DEBUG: PyQt5VideoAnnotator init: FIND = {FIND}")
         
         self.init_ui()
         
