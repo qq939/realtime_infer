@@ -865,7 +865,11 @@ def main():
             return
 
     print(f"\n开始标注: {video_path}")
-    annotate_video.run_pyqt5_annotator(video_path, DST_DIR)
+    # 重新执行整个脚本以便加载所有函数定义
+    import subprocess
+    import sys
+    subprocess.run([sys.executable, __file__])
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
