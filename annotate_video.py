@@ -1148,16 +1148,25 @@ class PyQt5VideoAnnotator(QMainWindow):
             r = next(results)
             
             # 获取分割结果
+            self.current_masks = []
+            self.current_mask_ids = []
+            
             if hasattr(r, 'masks') and r.masks is not None:
-                masks = r.masks.data[0].cpu().numpy() if len(r.masks.data) > 0 else []
-                self.current_masks = []
-                self.current_mask_ids = []
-                
-                for i, mask in enumerate(masks):
-                    mask_binary = (mask > 0.5).astype(np.uint8)
-                    mask_id = i
-                    self.current_masks.append((mask_id, mask_binary))
-                    self.current_mask_ids.append(mask_id)
+                masks_data = r.masks.data
+                if len(masks_data) > 0:
+                    mask_arr = masks_data[0].cpu().numpy()
+                    print(f"DEBUG: mask_arr shape = {mask_arr.shape}")
+                    
+                    if len(mask_arr.shape) == 3:
+                        for i in range(mask_arr.shape[0]):
+                            mask = mask_arr[i]
+                            mask_binary = (mask > 0.5).astype(np.uint8)
+                            self.current_masks.append((i, mask_binary))
+                            self.current_mask_ids.append(i)
+                    elif len(mask_arr.shape) == 2:
+                        mask_binary = (mask_arr > 0.5).astype(np.uint8)
+                        self.current_masks.append((0, mask_binary))
+                        self.current_mask_ids.append(0)
             
             # 更新显示（叠���分��结果）
             # 从结果中获取原始帧
@@ -1206,14 +1215,32 @@ class PyQt5VideoAnnotator(QMainWindow):
             if mask_id in self.deleted_mask_ids:
                 continue
             
+            # 跳过无效 mask
+            if mask is None or not isinstance(mask, np.ndarray):
+                print(f"DEBUG: 跳过无效 mask {mask_id}, type={type(mask)}")
+                continue
+            
+            # 确保 mask 是正确的形状和类型
+            if len(mask.shape) != 2:
+                print(f"DEBUG: mask shape 不对 {mask_id}, shape={mask.shape}")
+                continue
+            
             # 调整 mask 尺寸以匹配 frame
             if mask.shape[:2] != (fh, fw):
-                mask = cv2.resize(mask, (fw, fh))
+                mask = cv2.resize(mask.astype(np.uint8), (fw, fh))
+            
+            # 确保 mask 是二值类型
+            if mask.dtype != np.uint8:
+                mask = (mask > 0.5).astype(np.uint8)
             
             color = BOX_COLORS[i % len(BOX_COLORS)]
             colored_mask = np.zeros_like(result)
             colored_mask[:] = color
             mask_bool = mask > 0
+            
+            if mask_bool.sum() == 0:
+                continue
+            
             result[mask_bool] = cv2.addWeighted(result[mask_bool], 0.7, colored_mask[mask_bool], 0.3, 0)
             
             # 绘制轮廓
