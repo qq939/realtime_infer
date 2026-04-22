@@ -1296,8 +1296,14 @@ class PyQt5VideoAnnotator(QMainWindow):
             elif bboxes:
                 predictor_args['bboxes'] = bboxes
                 predictor_args['labels'] = [1] * len(bboxes)
-            elif text_prompt:
+            elif text_prompt and len(text_prompt) > 0:
                 predictor_args['text'] = text_prompt
+            else:
+                # 强制使用空文本作为提示
+                print("DEBUG: 使用空文本提示")
+                predictor_args['text'] = [""]
+            
+            print(f"DEBUG: predictor_args keys = {list(predictor_args.keys())}")
             
             results = predictor(**predictor_args)
             
