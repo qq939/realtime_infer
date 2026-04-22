@@ -1071,14 +1071,106 @@ class PyQt5VideoAnnotator(QMainWindow):
         
     def run_inference_thread(self):
         print("DEBUG: run_inference_thread 开始")
-        from annotate_video import VideoAnnotator
         print(f"DEBUG: video_path = {self.video_path}, output_dir = {self.output_dir}")
-        video_annotator = VideoAnnotator(str(self.video_path), str(self.output_dir))
-        video_annotator.boxes = self.boxes
-        print(f"DEBUG: boxes = {self.boxes}")
+        video_path = str(self.video_path)
+        output_dir = str(self.output_dir)
+        bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes] if self.boxes else None
+        print(f"DEBUG: boxes = {bboxes}")
         
         try:
-            video_annotator.process_video()
+            from ultralytics.models.sam import SAM3VideoSemanticPredictor
+            print("正在加载SAM3视频分割模型...")
+            
+            from annotate_video import get_device
+            device = get_device()
+            
+            from annotate_video import SAM_MODEL_PATH
+            overrides = dict(
+                conf=0.25,
+                task="segment",
+                mode="predict",
+                model=SAM_MODEL_PATH,
+                device=device,
+                half=False,
+                save=True,
+                verbose=False
+            )
+            predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+            print(f"SAM3视频模型加载成功")
+            
+            print(f"正在使用SAM3进行视频实例分割跟踪...")
+            from annotate_video import FIND
+            if FIND:
+                print(f"文本提示词: {FIND}")
+            else:
+                print("未提供文本提示词，将使用边界框进行分割")
+            print(f"将跟踪 {len(bboxes) if bboxes else 0} 个目标实例")
+            
+            import cv2
+            import numpy as np
+            from pathlib import Path
+            
+            output_filename = Path(video_path).stem + "_annotated" + Path(video_path).suffix
+            output_path = Path(output_dir) / output_filename
+            
+            cap = cv2.VideoCapture(video_path)
+            fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+            fourcc_str = ''.join([
+                chr(fourcc_int & 0xFF),
+                chr((fourcc_int >> 8) & 0xFF),
+                chr((fourcc_int >> 16) & 0xFF),
+                chr((fourcc_int >> 24) & 0xFF)
+            ])
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+            
+            if bboxes:
+                predictor_args = {
+                    'source': video_path,
+                    'bboxes': bboxes,
+                    'labels': [1] * len(bboxes),
+                    'stream': True
+                }
+            else:
+                predictor_args = {
+                    'source': video_path,
+                    'stream': True
+                }
+            
+            from annotate_video import FIND
+            if FIND:
+                predictor_args['text'] = FIND
+            
+            results = predictor(**predictor_args)
+            
+            frame_count = 0
+            print("正在生成标注视频...")
+            for r in results:
+                orig_img = r.orig_img if hasattr(r, 'orig_img') else None
+                if orig_img is None:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+                    ret_temp, orig_img = cap.read()
+                    if not ret_temp:
+                        orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+                
+                if orig_img is not None:
+                    if len(orig_img.shape) == 2:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+                    elif orig_img.shape[2] == 4:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+                
+                out.write(orig_img)
+                frame_count += 1
+                if frame_count % 30 == 0:
+                    print(f"已处理 {frame_count} 帧")
+            
+            cap.release()
+            out.release()
+            print(f"✅ 标注视频已保存到: {output_path}")
+            
         except Exception as e:
             print(f"推理出错: {e}")
             import traceback
