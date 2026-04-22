@@ -1161,6 +1161,14 @@ class PyQt5VideoAnnotator(QMainWindow):
                     self.current_mask_ids.append(mask_id)
             
             # 更新显示（叠���分��结果）
+            # 从结果中获取原始帧
+            frame = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
+            if frame is None:
+                import cv2
+                cap = cv2.VideoCapture(str(self.video_path))
+                ret, frame = cap.read()
+                cap.release()
+            
             self.frame = self.draw_masks_on_frame(frame)
             self.update_frame()
             
